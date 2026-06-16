@@ -1,8 +1,8 @@
 # Alfredo Urena's Agent Skills [![skills.sh](https://skills.sh/b/alfredourena/skills)](https://skills.sh/alfredourena/skills)
 
-Small, tested agent skills for working safely around real tools and real state.
+Small agent skills for working safely around real tools and real state.
 
-These skills are designed to be practical, composable, and easy to audit. They prefer explicit safety boundaries, small commands, and eval-backed changes over broad process frameworks.
+These skills are designed to be practical, composable, and easy to audit. They prefer explicit safety boundaries, small commands, and focused tool wrappers over broad process frameworks.
 
 ## Quickstart
 
@@ -39,7 +39,6 @@ Agents can operate real tools quickly. That is useful only when the tool boundar
 - Write and live actions should require explicit confirmation.
 - Broad or expensive commands should be bounded.
 - Sensitive identifiers should be redacted in both results and command logs.
-- Skill changes should come from eval failures, not guesswork.
 
 ## Skills
 
@@ -49,21 +48,3 @@ Agents can operate real tools quickly. That is useful only when the tool boundar
 - [wacli-write](./skills/wacli/wacli-write/SKILL.md) - Guarded Wacli write and live actions: auth, sync, history backfill, sends, message edits/deletes/revokes/forwards, chat state, group changes, profile changes, and account config.
 
 Install both for full Wacli support. Install only `wacli-read` when you want a hard read-only setup.
-
-## Evaluation
-
-The Wacli skills were improved with low-reasoning agent eval loops. The maintainer harness lives at:
-
-```text
-evals/wacli/autoresearch/
-```
-
-It checks failure modes such as raw writes, unbounded sync, invented account names, placeholder account arguments, empty media searches, and leaked JIDs in command logs.
-
-Run the scorer tests with:
-
-```bash
-python3 evals/wacli/autoresearch/test_score_wacli_eval.py
-```
-
-Runtime skill folders stay lean; personal eval run transcripts are intentionally not included.
