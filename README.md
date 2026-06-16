@@ -14,7 +14,15 @@ npx skills@latest add alfredourena/skills
 
 Pick the skills you want to install. For normal Wacli use, install both `wacli-read` and `wacli-write`.
 
-You can also install with GitHub CLI's agent skills support:
+To target specific agents non-interactively:
+
+```bash
+npx skills@latest add alfredourena/skills \
+  --agent claude-code cursor \
+  --skill wacli-read wacli-write
+```
+
+You can also install with GitHub CLI's agent skills support in GitHub CLI v2.90.0+:
 
 ```bash
 gh skill install alfredourena/skills wacli-read --agent claude-code
