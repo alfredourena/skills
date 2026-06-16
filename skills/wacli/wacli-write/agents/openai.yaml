@@ -1,0 +1,7 @@
+interface:
+  display_name: "Wacli Write"
+  short_description: "Explicit WhatsApp actions through Wacli."
+  default_prompt: "$wacli-write perform a specific WhatsApp action after confirming the target and content."
+
+policy:
+  allow_implicit_invocation: false

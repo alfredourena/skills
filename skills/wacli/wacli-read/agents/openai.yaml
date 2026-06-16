@@ -1,0 +1,7 @@
+interface:
+  display_name: "Wacli Read"
+  short_description: "Read-only WhatsApp search and diagnostics."
+  default_prompt: "$wacli-read search my local WhatsApp history safely using Wacli."
+
+policy:
+  allow_implicit_invocation: true
