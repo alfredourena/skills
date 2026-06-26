@@ -113,31 +113,7 @@ For the common "latest from X" workflow, prefer `apple_mail_search.sh --limit 1`
 
 The helper returns the same JSON shape as `apple_mail_search.sh`, with at most one result.
 
-For one-off AppleScript reads, keep the result bounded:
-
-```bash
-osascript <<'APPLESCRIPT'
-tell application "Mail"
-    set foundMessages to messages of inbox whose sender contains "leslie"
-    set latestMessage to missing value
-    set latestDate to date "Monday, January 1, 1900 at 12:00:00 AM"
-    repeat with theMessage in foundMessages
-        set messageDate to date received of theMessage
-        if messageDate > latestDate then
-            set latestDate to messageDate
-            set latestMessage to theMessage
-        end if
-    end repeat
-    if latestMessage is missing value then return "NO_MATCH"
-    set bodyText to content of latestMessage
-    if length of bodyText > 2000 then set bodyText to text 1 thru 2000 of bodyText
-    return "FROM: " & sender of latestMessage & linefeed & ¬
-        "DATE: " & (latestDate as string) & linefeed & ¬
-        "SUBJECT: " & subject of latestMessage & linefeed & ¬
-        "BODY:" & linefeed & bodyText
-end tell
-APPLESCRIPT
-```
+Use direct AppleScript/JXA only as an escape hatch when the JSON helper cannot express the Mail operation. Keep the operation bounded and prefer adding the missing primitive to `apple_mail.py` when the workflow should be reusable.
 
 ## Sending Mail
 
