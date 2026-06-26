@@ -4,4 +4,4 @@ interface:
   default_prompt: "Use $apple-mail to search my Apple Mail inbox for the latest message from a sender."
 
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

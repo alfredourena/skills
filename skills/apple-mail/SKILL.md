@@ -16,7 +16,7 @@ Prefer AppleScript through `osascript`. Do not parse `~/Library/Mail` directly b
 Supported operations:
 
 - List configured Mail accounts and email addresses.
-- Read bounded recent messages from Inbox or Sent.
+- Search Inbox or Sent with bounded body previews.
 - Search by sender, recipient, subject, or body text.
 - Send an email only when the user explicitly asks to send now.
 - Open a visible compose window when the user asks for a draft/review.
@@ -59,10 +59,11 @@ Default to Inbox and a small body preview. Prefer exact searches when the user g
 Use the helper for the common "latest from X" workflow:
 
 ```bash
-./skills/apple-mail/scripts/apple_mail_read_latest.sh --sender "leslie" --mailbox inbox --limit 2000 --check-new
+./skills/apple-mail/scripts/apple_mail_read_latest.sh --sender "leslie" --mailbox inbox --body-limit 2000 --check-new
 ```
 
 The helper prints the mailbox, sender, recipients, date, subject, attachment names, and a bounded body preview.
+It scans the selected mailbox through Apple Mail to find the latest match; use specific sender, subject, and mailbox filters to keep the query narrow.
 
 For one-off AppleScript reads, keep the result bounded:
 
@@ -97,6 +98,8 @@ Sending email is an external action. Send only when the user explicitly requests
 Use the guarded helper:
 
 ```bash
+APPLE_MAIL_WRITE_ACK="I understand this may send email through Apple Mail" \
+APPLE_MAIL_WRITE_CONFIRMATION='{"account":"alfredourena@icloud.com","action":"send email","target":"person@example.com","subject":"Subject","effect":"external email"}' \
 ./skills/apple-mail/scripts/apple_mail_send.sh \
   --send-now \
   --from "alfredourena@icloud.com" \
@@ -108,6 +111,8 @@ Use the guarded helper:
 Attach files by absolute path:
 
 ```bash
+APPLE_MAIL_WRITE_ACK="I understand this may send email through Apple Mail" \
+APPLE_MAIL_WRITE_CONFIRMATION='{"account":"default Mail sender","action":"send email","target":"person@example.com","subject":"Files","effect":"external email with attachment"}' \
 ./skills/apple-mail/scripts/apple_mail_send.sh \
   --send-now \
   --to "person@example.com" \
@@ -127,6 +132,15 @@ Open a compose window instead of sending when the user asks to review first:
 ```
 
 Never use `--send-now` for a message the user only asked to draft.
+
+For `--send-now`, the helper requires:
+
+- `APPLE_MAIL_WRITE_ACK` exactly set to `I understand this may send email through Apple Mail`.
+- `APPLE_MAIL_WRITE_CONFIRMATION` as JSON with `action`, `target`, `subject`, and `effect`.
+- If `--from` is present, the confirmation `account` must match that sender.
+- If `--from` is absent, the confirmation `account` must be `default Mail sender`.
+
+If `--from` is provided, the helper verifies the address exists in configured Mail accounts and aborts if Mail cannot apply it.
 
 ## Attachments
 

@@ -4,10 +4,10 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  apple_mail_read_latest.sh [--sender TEXT] [--subject TEXT] [--mailbox inbox|sent] [--limit N] [--check-new]
+  apple_mail_read_latest.sh [--sender TEXT] [--subject TEXT] [--mailbox inbox|sent] [--body-limit N] [--check-new]
 
 Examples:
-  apple_mail_read_latest.sh --sender "leslie" --mailbox inbox --limit 2000 --check-new
+  apple_mail_read_latest.sh --sender "leslie" --mailbox inbox --body-limit 2000 --check-new
   apple_mail_read_latest.sh --subject "Invoice" --mailbox sent
 USAGE
 }
@@ -32,8 +32,8 @@ while [[ $# -gt 0 ]]; do
       mailbox_name="${2:?--mailbox requires inbox or sent}"
       shift 2
       ;;
-    --limit)
-      body_limit="${2:?--limit requires a number}"
+    --body-limit)
+      body_limit="${2:?--body-limit requires a number}"
       shift 2
       ;;
     --check-new)
@@ -66,7 +66,7 @@ case "$mailbox_name" in
 esac
 
 if ! [[ "$body_limit" =~ ^[0-9]+$ ]] || [[ "$body_limit" -lt 1 ]]; then
-  echo "--limit must be a positive integer." >&2
+  echo "--body-limit must be a positive integer." >&2
   exit 2
 fi
 

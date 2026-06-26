@@ -14,7 +14,9 @@ Options:
 
 Examples:
   apple_mail_send.sh --dry-run --to person@example.com --subject Test --body "Hello"
-  apple_mail_send.sh --send-now --to person@example.com --subject Files --body-file /tmp/body.txt --attach /tmp/file.pdf
+  APPLE_MAIL_WRITE_ACK="I understand this may send email through Apple Mail" \
+  APPLE_MAIL_WRITE_CONFIRMATION='{"account":"default Mail sender","action":"send email","target":"person@example.com","subject":"Files","effect":"external email with attachment"}' \
+    apple_mail_send.sh --send-now --to person@example.com --subject Files --body-file /tmp/body.txt --attach /tmp/file.pdf
   apple_mail_send.sh --open-draft --to person@example.com --subject Review --body "Please review this draft."
 USAGE
 }
@@ -27,7 +29,7 @@ from_address=""
 subject=""
 body=""
 body_file=""
-attachments=()
+attachment_text=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -68,7 +70,11 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --attach)
-      attachments+=("${2:?--attach requires a path}")
+      attachment_path="${2:?--attach requires a path}"
+      if [[ -n "$attachment_text" ]]; then
+        attachment_text+=$'\n'
+      fi
+      attachment_text+="$attachment_path"
       shift 2
       ;;
     -h|--help)
@@ -111,22 +117,70 @@ if [[ -z "$body" ]]; then
   exit 2
 fi
 
-for path in "${attachments[@]}"; do
-  if [[ ! -f "$path" ]]; then
-    echo "Attachment not found: $path" >&2
-    exit 2
-  fi
-done
-
-attachment_text=""
-if [[ ${#attachments[@]} -gt 0 ]]; then
-  attachment_text="$(printf '%s\n' "${attachments[@]}")"
+if [[ -n "$attachment_text" ]]; then
+  while IFS= read -r path; do
+    if [[ ! -f "$path" ]]; then
+      echo "Attachment not found: $path" >&2
+      exit 2
+    fi
+  done <<< "$attachment_text"
 fi
 
 if [[ "$mode" == "dry-run" ]]; then
   printf 'DRY_RUN\nTO: %s\nCC: %s\nBCC: %s\nFROM: %s\nSUBJECT: %s\nATTACHMENTS:\n%s' \
     "$to_recipients" "$cc_recipients" "$bcc_recipients" "$from_address" "$subject" "$attachment_text"
   exit 0
+fi
+
+if [[ "$mode" == "send-now" ]]; then
+  expected_ack="I understand this may send email through Apple Mail"
+  if [[ "${APPLE_MAIL_WRITE_ACK:-}" != "$expected_ack" ]]; then
+    echo "Refusing to send: APPLE_MAIL_WRITE_ACK must exactly equal: $expected_ack" >&2
+    exit 2
+  fi
+
+  python3 - "$to_recipients" "$subject" "$from_address" <<'PY'
+import json
+import os
+import sys
+
+to_recipients, subject, from_address = sys.argv[1:4]
+raw = os.environ.get("APPLE_MAIL_WRITE_CONFIRMATION", "")
+if not raw:
+    print("Refusing to send: APPLE_MAIL_WRITE_CONFIRMATION is required.", file=sys.stderr)
+    sys.exit(2)
+
+try:
+    confirmation = json.loads(raw)
+except json.JSONDecodeError as exc:
+    print(f"Refusing to send: APPLE_MAIL_WRITE_CONFIRMATION is not valid JSON: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+required = {"account", "action", "target", "subject", "effect"}
+missing = sorted(required - set(confirmation))
+if missing:
+    print(f"Refusing to send: confirmation missing keys: {', '.join(missing)}", file=sys.stderr)
+    sys.exit(2)
+
+expected_account = from_address or "default Mail sender"
+checks = {
+    "action": "send email",
+    "target": to_recipients,
+    "subject": subject,
+    "account": expected_account,
+}
+for key, expected in checks.items():
+    if confirmation.get(key) != expected:
+        print(
+            f"Refusing to send: confirmation {key!r} must be {expected!r}.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+if "email" not in str(confirmation.get("effect", "")).lower():
+    print("Refusing to send: confirmation effect must describe email impact.", file=sys.stderr)
+    sys.exit(2)
+PY
 fi
 
 osascript - "$mode" "$to_recipients" "$cc_recipients" "$bcc_recipients" "$from_address" "$subject" "$body" "$attachment_text" <<'APPLESCRIPT'
@@ -166,6 +220,20 @@ on addRecipients(messageObject, fieldName, recipientsText)
     end tell
 end addRecipients
 
+on configuredSenderExists(fromText)
+    if fromText is "" then return true
+    tell application "Mail"
+        repeat with theAccount in accounts
+            try
+                repeat with accountAddress in email addresses of theAccount
+                    if (accountAddress as text) is fromText then return true
+                end repeat
+            end try
+        end repeat
+    end tell
+    return false
+end configuredSenderExists
+
 on run argv
     set modeName to item 1 of argv
     set toText to item 2 of argv
@@ -177,14 +245,17 @@ on run argv
     set attachmentText to item 8 of argv
 
     tell application "Mail"
+        if modeName is "send-now" and fromText is not "" then
+            if not my configuredSenderExists(fromText) then error "Requested sender is not configured in Apple Mail: " & fromText
+        end if
+
         set shouldShow to modeName is "open-draft"
         set newMessage to make new outgoing message with properties {subject:subjectText, content:bodyText & return & return, visible:shouldShow}
 
         tell newMessage
             if fromText is not "" then
-                try
-                    set sender to fromText
-                end try
+                set sender to fromText
+                if (sender as text) does not contain fromText then error "Mail did not apply requested sender: " & fromText
             end if
         end tell
 
