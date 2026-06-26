@@ -95,11 +95,19 @@ APPLESCRIPT
 
 Sending email is an external action. Send only when the user explicitly requests sending in the current turn and the recipient, subject, body intent, and attachments are clear.
 
-Use the guarded helper:
+Use the guarded helper. First generate the exact normalized send spec:
 
 ```bash
+SEND_SPEC="$(./skills/apple-mail/scripts/apple_mail_send.sh \
+  --dry-run \
+  --from "alfredourena@icloud.com" \
+  --to "person@example.com" \
+  --subject "Subject" \
+  --body "Message body" \
+  | sed -n 's/^SEND_SPEC: //p')"
+
 APPLE_MAIL_WRITE_ACK="I understand this may send email through Apple Mail" \
-APPLE_MAIL_WRITE_CONFIRMATION='{"account":"alfredourena@icloud.com","action":"send email","target":"person@example.com","subject":"Subject","effect":"external email"}' \
+APPLE_MAIL_WRITE_CONFIRMATION="$SEND_SPEC" \
 ./skills/apple-mail/scripts/apple_mail_send.sh \
   --send-now \
   --from "alfredourena@icloud.com" \
@@ -111,8 +119,16 @@ APPLE_MAIL_WRITE_CONFIRMATION='{"account":"alfredourena@icloud.com","action":"se
 Attach files by absolute path:
 
 ```bash
+SEND_SPEC="$(./skills/apple-mail/scripts/apple_mail_send.sh \
+  --dry-run \
+  --to "person@example.com" \
+  --subject "Files" \
+  --body-file /absolute/path/body.txt \
+  --attach /absolute/path/file.pdf \
+  | sed -n 's/^SEND_SPEC: //p')"
+
 APPLE_MAIL_WRITE_ACK="I understand this may send email through Apple Mail" \
-APPLE_MAIL_WRITE_CONFIRMATION='{"account":"default Mail sender","action":"send email","target":"person@example.com","subject":"Files","effect":"external email with attachment"}' \
+APPLE_MAIL_WRITE_CONFIRMATION="$SEND_SPEC" \
 ./skills/apple-mail/scripts/apple_mail_send.sh \
   --send-now \
   --to "person@example.com" \
@@ -136,9 +152,8 @@ Never use `--send-now` for a message the user only asked to draft.
 For `--send-now`, the helper requires:
 
 - `APPLE_MAIL_WRITE_ACK` exactly set to `I understand this may send email through Apple Mail`.
-- `APPLE_MAIL_WRITE_CONFIRMATION` as JSON with `action`, `target`, `subject`, and `effect`.
-- If `--from` is present, the confirmation `account` must match that sender.
-- If `--from` is absent, the confirmation `account` must be `default Mail sender`.
+- `APPLE_MAIL_WRITE_CONFIRMATION` equal to the `SEND_SPEC` JSON emitted by `--dry-run`.
+- The send spec pins account, to/cc/bcc, subject, body hash, attachment paths, action, and effect.
 
 If `--from` is provided, the helper verifies the address exists in configured Mail accounts and aborts if Mail cannot apply it.
 

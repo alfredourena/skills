@@ -14,8 +14,8 @@ Options:
 
 Examples:
   apple_mail_send.sh --dry-run --to person@example.com --subject Test --body "Hello"
-  APPLE_MAIL_WRITE_ACK="I understand this may send email through Apple Mail" \
-  APPLE_MAIL_WRITE_CONFIRMATION='{"account":"default Mail sender","action":"send email","target":"person@example.com","subject":"Files","effect":"external email with attachment"}' \
+  SEND_SPEC="$(apple_mail_send.sh --dry-run --to person@example.com --subject Files --body-file /tmp/body.txt --attach /tmp/file.pdf | sed -n 's/^SEND_SPEC: //p')"
+  APPLE_MAIL_WRITE_ACK="I understand this may send email through Apple Mail" APPLE_MAIL_WRITE_CONFIRMATION="$SEND_SPEC" \
     apple_mail_send.sh --send-now --to person@example.com --subject Files --body-file /tmp/body.txt --attach /tmp/file.pdf
   apple_mail_send.sh --open-draft --to person@example.com --subject Review --body "Please review this draft."
 USAGE
@@ -126,9 +126,32 @@ if [[ -n "$attachment_text" ]]; then
   done <<< "$attachment_text"
 fi
 
+send_spec_json="$(
+  python3 - "$to_recipients" "$cc_recipients" "$bcc_recipients" "$subject" "$from_address" "$body" "$attachment_text" <<'PY'
+import hashlib
+import json
+import sys
+
+to_recipients, cc_recipients, bcc_recipients, subject, from_address, body, attachment_text = sys.argv[1:8]
+attachments = attachment_text.splitlines() if attachment_text else []
+spec = {
+    "account": from_address or "default Mail sender",
+    "action": "send email",
+    "attachments": attachments,
+    "bcc": bcc_recipients,
+    "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+    "cc": cc_recipients,
+    "effect": "external email with attachment" if attachments else "external email",
+    "subject": subject,
+    "to": to_recipients,
+}
+print(json.dumps(spec, separators=(",", ":"), sort_keys=True))
+PY
+)"
+
 if [[ "$mode" == "dry-run" ]]; then
-  printf 'DRY_RUN\nTO: %s\nCC: %s\nBCC: %s\nFROM: %s\nSUBJECT: %s\nATTACHMENTS:\n%s' \
-    "$to_recipients" "$cc_recipients" "$bcc_recipients" "$from_address" "$subject" "$attachment_text"
+  printf 'DRY_RUN\nSEND_SPEC: %s\nTO: %s\nCC: %s\nBCC: %s\nFROM: %s\nSUBJECT: %s\nATTACHMENTS:\n%s' \
+    "$send_spec_json" "$to_recipients" "$cc_recipients" "$bcc_recipients" "$from_address" "$subject" "$attachment_text"
   exit 0
 fi
 
@@ -139,12 +162,12 @@ if [[ "$mode" == "send-now" ]]; then
     exit 2
   fi
 
-  python3 - "$to_recipients" "$subject" "$from_address" <<'PY'
+  python3 - "$send_spec_json" <<'PY'
 import json
 import os
 import sys
 
-to_recipients, subject, from_address = sys.argv[1:4]
+expected = json.loads(sys.argv[1])
 raw = os.environ.get("APPLE_MAIL_WRITE_CONFIRMATION", "")
 if not raw:
     print("Refusing to send: APPLE_MAIL_WRITE_CONFIRMATION is required.", file=sys.stderr)
@@ -156,29 +179,9 @@ except json.JSONDecodeError as exc:
     print(f"Refusing to send: APPLE_MAIL_WRITE_CONFIRMATION is not valid JSON: {exc}", file=sys.stderr)
     sys.exit(2)
 
-required = {"account", "action", "target", "subject", "effect"}
-missing = sorted(required - set(confirmation))
-if missing:
-    print(f"Refusing to send: confirmation missing keys: {', '.join(missing)}", file=sys.stderr)
-    sys.exit(2)
-
-expected_account = from_address or "default Mail sender"
-checks = {
-    "action": "send email",
-    "target": to_recipients,
-    "subject": subject,
-    "account": expected_account,
-}
-for key, expected in checks.items():
-    if confirmation.get(key) != expected:
-        print(
-            f"Refusing to send: confirmation {key!r} must be {expected!r}.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-
-if "email" not in str(confirmation.get("effect", "")).lower():
-    print("Refusing to send: confirmation effect must describe email impact.", file=sys.stderr)
+if confirmation != expected:
+    print("Refusing to send: APPLE_MAIL_WRITE_CONFIRMATION must match SEND_SPEC exactly.", file=sys.stderr)
+    print(f"Expected SEND_SPEC: {json.dumps(expected, separators=(',', ':'), sort_keys=True)}", file=sys.stderr)
     sys.exit(2)
 PY
 fi
