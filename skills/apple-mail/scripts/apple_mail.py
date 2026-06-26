@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -146,21 +147,22 @@ function run(argv) {
     const criteria = request.criteria;
     const limit = request.limit;
     const bodyLimit = request.body_limit;
-    const results = [];
+    const candidates = [];
     if (request.check_new) Mail.checkForNewMail();
 
     for (const target of mailboxTargets(request.mailbox)) {
       const messages = materializeMessages(target, criteria);
-      messages.sort(function(a, b) {
-        return new Date(dateForMessage(b, target)) - new Date(dateForMessage(a, target));
-      });
       for (const message of messages) {
         if (!messageMatchesPostFilters(message, target, criteria)) continue;
-        results.push(messageObject(message, target, bodyLimit, false));
-        if (results.length >= limit) break;
+        candidates.push({message: message, target: target, date: dateForMessage(message, target)});
       }
-      if (results.length >= limit) break;
     }
+    candidates.sort(function(a, b) {
+      return new Date(b.date) - new Date(a.date);
+    });
+    const results = candidates.slice(0, limit).map(function(candidate) {
+      return messageObject(candidate.message, candidate.target, bodyLimit, false);
+    });
     return {query: request, messages: results};
   }
 
@@ -206,6 +208,72 @@ function run(argv) {
 """
 
 
+@dataclass(frozen=True)
+class SearchCriteria:
+    from_: str = ""
+    to: str = ""
+    subject: str = ""
+    query: str = ""
+    unread: bool = False
+    read: bool = False
+    has_attachments: bool = False
+    after: str = ""
+    before: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "from": self.from_,
+            "to": self.to,
+            "subject": self.subject,
+            "query": self.query,
+            "unread": self.unread,
+            "read": self.read,
+            "hasAttachments": self.has_attachments,
+            "after": self.after,
+            "before": self.before,
+        }
+
+    def has_filter(self) -> bool:
+        return any(self.to_json().values())
+
+    def has_native_filter(self) -> bool:
+        return any([self.from_, self.subject, self.unread, self.read])
+
+
+@dataclass(frozen=True)
+class MailRequest:
+    command: str
+    mailbox: str
+    criteria: SearchCriteria | None = None
+    message_id: int | None = None
+    limit: int | None = None
+    body_limit: int | None = None
+    check_new: bool | None = None
+    attachment: str | None = None
+    output: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "command": self.command,
+            "mailbox": self.mailbox,
+        }
+        if self.criteria is not None:
+            payload["criteria"] = self.criteria.to_json()
+        if self.message_id is not None:
+            payload["id"] = self.message_id
+        if self.limit is not None:
+            payload["limit"] = self.limit
+        if self.body_limit is not None:
+            payload["body_limit"] = self.body_limit
+        if self.check_new is not None:
+            payload["check_new"] = self.check_new
+        if self.attachment is not None:
+            payload["attachment"] = self.attachment
+        if self.output is not None:
+            payload["output"] = self.output
+        return payload
+
+
 def positive_int(value: str) -> int:
     try:
         parsed = int(value)
@@ -226,10 +294,10 @@ def non_negative_int(value: str) -> int:
     return parsed
 
 
-def run_jxa(request: dict[str, Any]) -> dict[str, Any]:
+def run_jxa(request: MailRequest) -> dict[str, Any]:
     osascript = os.environ.get("APPLE_MAIL_OSASCRIPT", "osascript")
     proc = subprocess.run(
-        [osascript, "-l", "JavaScript", "-", json.dumps(request, separators=(",", ":"))],
+        [osascript, "-l", "JavaScript", "-", json.dumps(request.to_json(), separators=(",", ":"))],
         input=JXA_SOURCE,
         text=True,
         stdout=subprocess.PIPE,
@@ -295,39 +363,62 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def search_request(args: argparse.Namespace) -> dict[str, Any]:
+def build_search_request(args: argparse.Namespace) -> MailRequest:
     if args.unread and args.read:
         raise SystemExit("--unread and --read are mutually exclusive")
-    criteria = {
-        "from": args.from_,
-        "to": args.to,
-        "subject": args.subject,
-        "query": args.query,
-        "unread": args.unread,
-        "read": args.read,
-        "hasAttachments": args.has_attachments,
-        "after": args.after,
-        "before": args.before,
-    }
-    has_filter = any(value for value in criteria.values())
-    has_native_filter = any([args.from_, args.subject, args.unread, args.read])
-    if not has_filter and not args.allow_broad:
+    criteria = SearchCriteria(
+        from_=args.from_,
+        to=args.to,
+        subject=args.subject,
+        query=args.query,
+        unread=args.unread,
+        read=args.read,
+        has_attachments=args.has_attachments,
+        after=args.after,
+        before=args.before,
+    )
+    if not criteria.has_filter() and not args.allow_broad:
         sys.stderr.write("Refusing broad search: provide a filter or pass --allow-broad.\n")
         raise SystemExit(2)
-    if has_filter and not has_native_filter and not args.allow_broad:
+    if criteria.has_filter() and not criteria.has_native_filter() and not args.allow_broad:
         sys.stderr.write(
             "Refusing broad search: this filter set requires scanning the mailbox; "
             "combine it with --from, --subject, --unread, or --read, or pass --allow-broad.\n"
         )
         raise SystemExit(2)
-    return {
-        "command": "search",
-        "mailbox": args.mailbox,
-        "criteria": criteria,
-        "limit": args.limit,
-        "body_limit": args.body_limit,
-        "check_new": args.check_new,
-    }
+    return MailRequest(
+        command="search",
+        mailbox=args.mailbox,
+        criteria=criteria,
+        limit=args.limit,
+        body_limit=args.body_limit,
+        check_new=args.check_new,
+    )
+
+
+def build_read_request(args: argparse.Namespace) -> MailRequest:
+    return MailRequest(
+        command="read",
+        mailbox=args.mailbox,
+        message_id=args.id,
+        body_limit=0 if args.full_body else args.body_limit,
+    )
+
+
+def build_attachments_request(args: argparse.Namespace) -> MailRequest:
+    return MailRequest(command="attachments", mailbox=args.mailbox, message_id=args.id)
+
+
+def build_save_attachment_request(args: argparse.Namespace) -> MailRequest:
+    output = Path(args.output).expanduser()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    return MailRequest(
+        command="save-attachment",
+        mailbox=args.mailbox,
+        message_id=args.id,
+        attachment=args.attachment,
+        output=str(output),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -335,26 +426,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "search":
-        request = search_request(args)
+        request = build_search_request(args)
     elif args.command == "read":
-        request = {
-            "command": "read",
-            "mailbox": args.mailbox,
-            "id": args.id,
-            "body_limit": 0 if args.full_body else args.body_limit,
-        }
+        request = build_read_request(args)
     elif args.command == "attachments":
-        request = {"command": "attachments", "mailbox": args.mailbox, "id": args.id}
+        request = build_attachments_request(args)
     elif args.command == "save-attachment":
-        output = Path(args.output).expanduser()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        request = {
-            "command": "save-attachment",
-            "mailbox": args.mailbox,
-            "id": args.id,
-            "attachment": args.attachment,
-            "output": str(output),
-        }
+        request = build_save_attachment_request(args)
     else:
         parser.error(f"Unsupported command: {args.command}")
 

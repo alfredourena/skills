@@ -13,6 +13,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).with_name("apple_mail.py")
 SEARCH_WRAPPER = Path(__file__).with_name("apple_mail_search.sh")
+LATEST_WRAPPER = Path(__file__).with_name("apple_mail_read_latest.sh")
 
 
 class AppleMailCliTest(unittest.TestCase):
@@ -142,6 +143,36 @@ class AppleMailCliTest(unittest.TestCase):
         request = json.loads(osascript_args[-1])
         self.assertEqual(request["command"], "read")
         self.assertEqual(request["id"], 17371)
+        self.assertEqual(request["body_limit"], 2000)
+
+    def test_full_body_serializes_zero_body_limit(self) -> None:
+        proc, osascript_args = self.run_cli(
+            "read",
+            "--mailbox",
+            "inbox",
+            "--id",
+            "17371",
+            "--full-body",
+            fake_output=json.dumps({"message": {"id": 17371, "body": "full"}}),
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        request = json.loads(osascript_args[-1])
+        self.assertEqual(request["body_limit"], 0)
+
+    def test_attachments_contract(self) -> None:
+        proc, osascript_args = self.run_cli(
+            "attachments",
+            "--mailbox",
+            "sent",
+            "--id",
+            "17371",
+            fake_output=json.dumps({"attachments": []}),
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        request = json.loads(osascript_args[-1])
+        self.assertEqual(request, {"command": "attachments", "mailbox": "sent", "id": 17371})
 
     def test_save_attachment_requires_explicit_output(self) -> None:
         proc, _ = self.run_cli(
@@ -156,6 +187,35 @@ class AppleMailCliTest(unittest.TestCase):
 
         self.assertEqual(proc.returncode, 2)
         self.assertIn("--output", proc.stderr)
+
+    def test_save_attachment_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = str(Path(tmp) / "invoice.pdf")
+            proc, osascript_args = self.run_cli(
+                "save-attachment",
+                "--mailbox",
+                "inbox",
+                "--id",
+                "17371",
+                "--attachment",
+                "invoice.pdf",
+                "--output",
+                output,
+                fake_output=json.dumps({"output": output}),
+            )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        request = json.loads(osascript_args[-1])
+        self.assertEqual(
+            request,
+            {
+                "command": "save-attachment",
+                "mailbox": "inbox",
+                "id": 17371,
+                "attachment": "invoice.pdf",
+                "output": output,
+            },
+        )
 
     def test_search_wrapper_calls_common_cli(self) -> None:
         fake_output = json.dumps({"query": {"mailbox": "inbox"}, "messages": []})
@@ -195,6 +255,57 @@ class AppleMailCliTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             request = json.loads(json.loads(args_file.read_text())[-1])
             self.assertEqual(request["command"], "search")
+
+    def test_latest_wrapper_uses_common_search_cli(self) -> None:
+        fake_output = json.dumps({"query": {"mailbox": "all"}, "messages": []})
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            args_file = tmp_path / "osascript_args.json"
+            fake = tmp_path / "osascript"
+            fake.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!{sys.executable}
+                    import json
+                    import os
+                    import sys
+                    from pathlib import Path
+
+                    Path(os.environ["APPLE_MAIL_OSASCRIPT_ARGS"]).write_text(json.dumps(sys.argv[1:]))
+                    print(os.environ["APPLE_MAIL_FAKE_OUTPUT"])
+                    """
+                )
+            )
+            fake.chmod(0o755)
+            env = os.environ.copy()
+            env["APPLE_MAIL_OSASCRIPT"] = str(fake)
+            env["APPLE_MAIL_OSASCRIPT_ARGS"] = str(args_file)
+            env["APPLE_MAIL_FAKE_OUTPUT"] = fake_output
+
+            proc = subprocess.run(
+                [
+                    str(LATEST_WRAPPER),
+                    "--mailbox",
+                    "all",
+                    "--sender",
+                    "alf@simply-neat.com",
+                    "--body-limit",
+                    "99",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            request = json.loads(json.loads(args_file.read_text())[-1])
+            self.assertEqual(request["command"], "search")
+            self.assertEqual(request["mailbox"], "all")
+            self.assertEqual(request["criteria"]["from"], "alf@simply-neat.com")
+            self.assertEqual(request["limit"], 1)
+            self.assertEqual(request["body_limit"], 99)
 
 
 if __name__ == "__main__":

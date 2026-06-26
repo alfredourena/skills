@@ -105,14 +105,13 @@ Save one attachment only when the user asks for it and gives, or can accept, an 
   --output ./apple-mail-attachments/invoice.pdf
 ```
 
-Use the helper for the common "latest from X" workflow:
+For the common "latest from X" workflow, prefer `apple_mail_search.sh --limit 1`. The legacy-named helper is a compatibility wrapper around the same JSON search path:
 
 ```bash
 ./skills/apple-mail/scripts/apple_mail_read_latest.sh --sender "leslie" --mailbox inbox --body-limit 2000 --check-new
 ```
 
-The helper prints the mailbox, sender, recipients, date, subject, attachment names, and a bounded body preview.
-It scans the selected mailbox through Apple Mail to find the latest match; use specific sender, subject, and mailbox filters to keep the query narrow.
+The helper returns the same JSON shape as `apple_mail_search.sh`, with at most one result.
 
 For one-off AppleScript reads, keep the result bounded:
 
