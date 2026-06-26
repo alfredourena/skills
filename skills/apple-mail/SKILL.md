@@ -1,6 +1,6 @@
 ---
 name: apple-mail
-description: "Use when working with the local macOS Apple Mail app: read/search recent messages, list configured Mail accounts, send or open explicitly requested emails, include attachments, check for new mail, or verify Apple Mail/Gmail round trips. Use AppleScript automation; avoid direct ~/Library/Mail parsing unless explicitly authorized."
+description: "Use when working with the local macOS Apple Mail app: search/list unread mail, read messages by id, list or save attachments, list configured Mail accounts, send or open explicitly requested emails, check for new mail, or verify Apple Mail/Gmail round trips. Use AppleScript/JXA automation; avoid direct ~/Library/Mail parsing unless explicitly authorized."
 ---
 
 # Apple Mail
@@ -11,13 +11,15 @@ Apple Mail is a real mailbox client. Treat message bodies, recipients, sender na
 
 ## Primary Contract
 
-Prefer AppleScript through `osascript`. Do not parse `~/Library/Mail` directly by default; macOS TCC commonly blocks it and the on-disk store is private implementation detail.
+Prefer the bundled helpers, which use `osascript` with AppleScript/JXA. Do not parse `~/Library/Mail` directly by default; macOS TCC commonly blocks it and the on-disk store is private implementation detail.
 
 Supported operations:
 
 - List configured Mail accounts and email addresses.
-- Search Inbox or Sent with bounded body previews.
-- Search by sender, recipient, subject, or body text.
+- Search Inbox, Sent, or both with JSON output and bounded body previews.
+- List unread mail.
+- Read a selected message by id.
+- List or save attachments to an explicit output path.
 - Send an email only when the user explicitly asks to send now.
 - Open a visible compose window when the user asks for a draft/review.
 - Attach local files by absolute path.
@@ -54,7 +56,54 @@ osascript -e 'tell application "Mail" to check for new mail'
 
 ## Reading Mail
 
-Default to Inbox and a small body preview. Prefer exact searches when the user gives a sender, recipient, subject, date, or thread hint.
+Default to Inbox and a small body preview. Prefer exact searches when the user gives a sender, recipient, subject, date, unread state, or thread hint.
+
+Use JSON helpers for new work:
+
+```bash
+./skills/apple-mail/scripts/apple_mail_search.sh \
+  --mailbox inbox \
+  --unread \
+  --limit 25 \
+  --body-limit 1500
+```
+
+Search filters:
+
+```bash
+./skills/apple-mail/scripts/apple_mail_search.sh \
+  --mailbox all \
+  --from "alf@simply-neat.com" \
+  --subject "round-trip" \
+  --has-attachments \
+  --limit 10
+```
+
+The search helper refuses unfiltered mailbox scans unless `--allow-broad` is passed. Body, recipient, attachment, and date filters require post-filtering inside Mail; combine them with `--from`, `--subject`, `--read`, or `--unread`, or pass `--allow-broad` when a broad scan is intentional.
+
+Read a selected message by id from search output:
+
+```bash
+./skills/apple-mail/scripts/apple_mail_read.sh --mailbox inbox --id 17371 --body-limit 5000
+```
+
+Use `--full-body` only when the user needs the full message text.
+
+List attachments:
+
+```bash
+./skills/apple-mail/scripts/apple_mail_attachments.sh --mailbox inbox --id 17371
+```
+
+Save one attachment only when the user asks for it and gives, or can accept, an explicit output path:
+
+```bash
+./skills/apple-mail/scripts/apple_mail_save_attachment.sh \
+  --mailbox inbox \
+  --id 17371 \
+  --attachment "invoice.pdf" \
+  --output ./apple-mail-attachments/invoice.pdf
+```
 
 Use the helper for the common "latest from X" workflow:
 
@@ -188,6 +237,7 @@ Use unique subjects or tokens for test messages so Gmail search is deterministic
 ## Output Rules
 
 - State the mailbox scope searched, such as Inbox only or Sent only.
+- Prefer JSON helpers for search/read output; summarize the JSON rather than dumping large raw bodies.
 - Report whether the result came from Apple Mail automation or Gmail connector verification.
 - Summarize bodies instead of dumping long threads unless the user asks for full text.
 - Include exact dates and senders for mail findings.
@@ -202,9 +252,15 @@ Use unique subjects or tokens for test messages so Gmail search is deterministic
 | Sending a "test" without a unique subject/token | Add a unique subject or token before sending. |
 | Treating Apple Mail Sent success as delivery proof | Verify on the receiving side when possible. |
 | Using draft language but sending immediately | Open a compose window or create a draft instead. |
-| Searching all mailboxes unbounded | Start with Inbox/Sent and narrow by sender, subject, or date. |
+| Searching all mailboxes unbounded | Use `apple_mail_search.sh` with filters and `--limit`; pass `--allow-broad` only when explicitly warranted. |
 
 ## References
 
+- `scripts/apple_mail.py`: common JSON CLI for search, read, attachments, and save-attachment.
+- `scripts/apple_mail_search.sh`: JSON search/list helper.
+- `scripts/apple_mail_list_unread.sh`: convenience wrapper for unread search.
+- `scripts/apple_mail_read.sh`: read one message by id.
+- `scripts/apple_mail_attachments.sh`: list message attachments.
+- `scripts/apple_mail_save_attachment.sh`: save an attachment to an explicit path.
 - `scripts/apple_mail_read_latest.sh`: guarded helper for latest-message reads.
 - `scripts/apple_mail_send.sh`: guarded helper for sending or opening a compose draft.

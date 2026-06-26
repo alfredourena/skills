@@ -44,7 +44,7 @@ Agents can operate real tools quickly. That is useful only when the tool boundar
 
 ### Apple Mail
 
-- [apple-mail](./skills/apple-mail/SKILL.md) - Local macOS Mail.app automation through AppleScript: read/search recent messages, list accounts, send explicit messages, open compose drafts, handle attachments, and verify round trips with Gmail when available.
+- [apple-mail](./skills/apple-mail/SKILL.md) - Local macOS Mail.app automation through AppleScript/JXA: search/list unread mail, read messages by id, list or save attachments, list accounts, send explicit messages, open compose drafts, and verify round trips with Gmail when available.
 
 ### Wacli
 
