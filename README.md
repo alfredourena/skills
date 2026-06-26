@@ -42,6 +42,10 @@ Agents can operate real tools quickly. That is useful only when the tool boundar
 
 ## Skills
 
+### Apple Mail
+
+- [apple-mail](./skills/apple-mail/SKILL.md) - Local macOS Mail.app automation through AppleScript: read/search recent messages, list accounts, send explicit messages, open compose drafts, handle attachments, and verify round trips with Gmail when available.
+
 ### Wacli
 
 - [wacli-read](./skills/wacli/wacli-read/SKILL.md) - Read-only WhatsApp inspection through Wacli: accounts, doctor, chats, contacts, groups, message search/list/context/export, and already-synced media downloads.

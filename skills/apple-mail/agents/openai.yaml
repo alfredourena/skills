@@ -1,0 +1,7 @@
+interface:
+  display_name: "Apple Mail"
+  short_description: "Read and send through local Apple Mail."
+  default_prompt: "Use $apple-mail to search my Apple Mail inbox for the latest message from a sender."
+
+policy:
+  allow_implicit_invocation: true
